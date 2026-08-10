@@ -1512,6 +1512,17 @@ fn parse_formula(
                 // PtgExp: array/shared formula, ignore
                 debug!("ignoring PtgExp array/shared formula");
                 stack.push(formula.len());
+                // PtgExp carries a 4-byte operand (the row/column of the
+                // array or shared formula it points at). A truncated token
+                // leaves fewer bytes than that, so slicing unconditionally
+                // panics instead of reporting the malformed input.
+                if rgce.len() < 4 {
+                    return Err(XlsError::Len {
+                        expected: 4,
+                        found: rgce.len(),
+                        typ: "PtgExp",
+                    });
+                }
                 rgce = &rgce[4..];
             }
             0x03..=0x11 => {

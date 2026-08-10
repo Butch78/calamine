@@ -3246,6 +3246,21 @@ fn biff5_formula_ptg_ref_643() {
 }
 
 #[test]
+fn ptgexp_truncated_operand() {
+    // A PtgExp token (array/shared formula) whose 4-byte operand is truncated.
+    // The parser used to slice past the end of the token stream and panic with
+    // "range start index 4 out of range for slice of length 2", which took down
+    // `open_workbook` itself — the file could not be opened at all, let alone
+    // read. It now reports the short token and the rest of the workbook loads.
+    let mut excel: Xls<_> = wb("ptgexp-truncated-operand.xls");
+    let range = excel.worksheet_range("Tab 1").unwrap();
+    assert_eq!(range.get_size(), (23, 10));
+
+    let formulas = excel.worksheet_formula("Tab 1").unwrap();
+    assert_eq!(formulas.used_cells().count(), 22);
+}
+
+#[test]
 fn biff5_rich_text_string() {
     // This file uses RSTRING records, apparently produced by ABBYY FineReader.
     let mut wb: Xls<_> = wb("biff5-rich-text-string.xls");
