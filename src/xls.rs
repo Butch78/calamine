@@ -609,8 +609,36 @@ impl<RS: Read + Seek> Xls<RS> {
             let mut formulas = Vec::new();
             let mut fmla_pos = (0, 0);
             let mut merge_cells = Vec::new();
+            // BOF..EOF nesting depth from the sheet's own BOF (the first
+            // record `pos` points at). An EMBEDDED CHART is a whole
+            // nested substream inside the worksheet's: its cached series
+            // are plain NUMBER/LABEL records whose rw/col are (point,
+            // series) indices, NOT sheet coordinates — ingesting them
+            // stomps real sheet cells, and breaking at the chart's EOF
+            // drops every sheet record after the chart.
+            let mut substream_depth = 0usize;
             for record in records {
                 let r = record?;
+                match r.typ {
+                    // BOF (MS-XLS 2.4.21): sheet's own, or a nested chart's.
+                    0x0809 => {
+                        substream_depth += 1;
+                        continue;
+                    }
+                    // 10: EOF — closes the innermost substream; only the
+                    // sheet's own ends the loop.
+                    0x000A => {
+                        substream_depth = substream_depth.saturating_sub(1);
+                        if substream_depth == 0 {
+                            break;
+                        }
+                        continue;
+                    }
+                    // Records inside an embedded chart substream are the
+                    // chart's, not the sheet's.
+                    _ if substream_depth > 1 => continue,
+                    _ => {}
+                }
                 match r.typ {
                     // 512: Dimensions
                     0x0200 => {
@@ -633,7 +661,6 @@ impl<RS: Read + Seek> Xls<RS> {
                     0x00FD => cells.extend(parse_label_sst(r.data, &strings)?), // LabelSst
                     0x00BD => parse_mul_rk(r.data, &mut cells, &self.formats, self.is_1904)?, // 189: MulRk
                     0x00E5 => parse_merge_cells(r.data, &mut merge_cells)?, // 229: Merge Cells
-                    0x000A => break,                                        // 10: EOF,
                     0x0006 => {
                         // 6: Formula
                         if r.data.len() < 20 {
